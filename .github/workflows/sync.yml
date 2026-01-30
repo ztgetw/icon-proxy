@@ -35,15 +35,15 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # 1. 切换到名为 icon 的孤立分支
+          # 1. 切换到 icon 分支
           git checkout --orphan icon
           
           # 2. 清空暂存区
           git reset
           
-          # 3. 添加文件
-          git add icons/ TFEL-Emby-Mirror.json
+          # 3. 添加文件 (这里修改了: 添加所有 json 结尾的文件)
+          git add icons/ *.json
           
-          # 4. 提交并强制推送到 icon 分支
+          # 4. 提交并强制推送
           git commit -m "Auto-sync: Daily update (Beijing Time 23:00)"
           git push origin icon --force
