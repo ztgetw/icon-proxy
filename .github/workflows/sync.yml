@@ -1,6 +1,6 @@
 name: Sync Emby Icons
 
-on:
+于:
   workflow_dispatch:
   schedule:
     # UTC 15:00 = 北京时间 23:00
@@ -30,14 +30,14 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: python sync_icons.py
 
-      - name: Deploy to cdn branch
+      - name: Deploy to icon 分支
         run: |
           # 配置 git 用户
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # 1. 切换到一个孤立的新分支 cdn (不带历史记录，保持轻量)
-          git checkout --orphan cdn
+          # 1. 切换到一个孤立的新分支 icon (不带历史记录，保持轻量)
+          git checkout --orphan icon
           
           # 2. 清空暂存区 (因为 orphan 会把 main 的文件都带过来，我们不需要)
           git reset
@@ -47,4 +47,4 @@ jobs:
           
           # 4. 提交并强制推送
           git commit -m "Auto-sync: Daily update (Beijing Time 23:00)"
-          git push origin cdn --force
+          git push origin icon --force
