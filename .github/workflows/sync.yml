@@ -1,9 +1,9 @@
 name: Sync Emby Icons
 
-于:
+on:
   workflow_dispatch:
   schedule:
-    # UTC 15:00 = 北京时间 23:00
+    # 北京时间 23:00 (UTC 15:00)
     - cron: '0 15 * * *'
 
 permissions:
@@ -30,21 +30,20 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: python sync_icons.py
 
-      - name: Deploy to icon 分支
+      - name: Deploy to icon branch
         run: |
-          # 配置 git 用户
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # 1. 切换到一个孤立的新分支 icon (不带历史记录，保持轻量)
+          # 1. 切换到名为 icon 的孤立分支
           git checkout --orphan icon
           
-          # 2. 清空暂存区 (因为 orphan 会把 main 的文件都带过来，我们不需要)
+          # 2. 清空暂存区
           git reset
           
-          # 3. 只添加刚才脚本生成的文件 (icons 文件夹和 json 文件)
+          # 3. 添加文件
           git add icons/ TFEL-Emby-Mirror.json
           
-          # 4. 提交并强制推送
+          # 4. 提交并强制推送到 icon 分支
           git commit -m "Auto-sync: Daily update (Beijing Time 23:00)"
           git push origin icon --force
