@@ -5,56 +5,39 @@ import copy
 from urllib.parse import urlparse
 
 # ================= 配置 =================
+# 目标源 JSON
 SOURCE_URL = "https://emby-icon.vercel.app/TFEL-Emby.json"
+# 保存的 JSON 文件名
+OUTPUT_JSON_NAME = "TFEL-Emby-Mirror.json"
 
+# 输出文件名 1 (ghproxy)
+OUTPUT_GHPROXY = "TFEL-Emby-Mirror.json"
+# 输出文件名 2 (jsDelivr)
+OUTPUT_JSDELIVR = "TFEL-Emby-Jsdelivr.json"
+
+# 图片保存目录
 ICONS_DIR = "icons"
+# 目标分支名称 (已修改为 icon)
+# 目标分支名称
 TARGET_BRANCH = "icon"
-
-OUTPUT_FILES = {
-    "jsdelivr": "TFEL-Emby-jsdelivr.json",
-    "statically": "TFEL-Emby-statically.json",
-    "fastgit": "TFEL-Emby-fastgit.json",
-    "ghproxy": "TFEL-Emby-ghproxy.json",
-    "raw": "TFEL-Emby-raw.json"
-}
 # =======================================
 
-
-def generate_cdn_url(repo, branch, filename, cdn_type):
-    base_raw = f"https://raw.githubusercontent.com/{repo}/{branch}/icons/{filename}"
-
-    if cdn_type == "jsdelivr":
-        return f"https://cdn.jsdelivr.net/gh/{repo}@{branch}/icons/{filename}"
-
-    elif cdn_type == "statically":
-        return f"https://cdn.statically.io/gh/{repo}/{branch}/icons/{filename}"
-
-    elif cdn_type == "fastgit":
-        return f"https://raw.fastgit.org/{repo}/{branch}/icons/{filename}"
-
-    elif cdn_type == "ghproxy":
-        return f"https://ghproxy.net/{base_raw}"
-
-    elif cdn_type == "raw":
-        return base_raw
-
-    return base_raw
-
-
-def process_items(items, repo, branch, cdn_type, download=False):
+def process_items(items, base_url, download=False):
+    """
+    处理列表中的 URL：
+    1. 如果 download=True，下载图片到本地
+    2. 将 URL 替换为 base_url + 文件名
+    """
     count = 0
-
     for item in items:
         original_url = item.get('url') or item.get('Url')
-        if not original_url:
-            continue
+        if not original_url: continue
 
         parsed = urlparse(original_url)
         filename = os.path.basename(parsed.path)
-        if not filename:
-            continue
+        if not filename: continue
 
-        # 下载图片（只执行一次）
+        # 仅在第一次处理时下载图片
         if download:
             save_path = os.path.join(ICONS_DIR, filename)
             if not os.path.exists(save_path):
@@ -68,67 +51,105 @@ def process_items(items, repo, branch, cdn_type, download=False):
                 except Exception as e:
                     print(f"[ERR] 下载异常 {filename}: {e}")
 
-        # 替换 URL
-        new_url = generate_cdn_url(repo, branch, filename, cdn_type)
-
-        if 'url' in item:
-            item['url'] = new_url
-        if 'Url' in item:
-            item['Url'] = new_url
-
+        # 替换链接
+        new_link = base_url + filename
+        if 'url' in item: item['url'] = new_link
+        if 'Url' in item: item['Url'] = new_link
+        
         count += 1
-
     return count
 
-
 def run():
-    repo_full_name = os.environ.get("GITHUB_REPOSITORY")
-    if not repo_full_name:
-        print("错误：无法获取 GITHUB_REPOSITORY 环境变量")
-        return
+repo_full_name = os.environ.get("GITHUB_REPOSITORY")
+if not repo_full_name:
+print("错误：无法获取 GITHUB_REPOSITORY 环境变量")
+return
 
-    print(f"当前仓库: {repo_full_name}")
+    # 构造 Base URL，指向 icon 分支
+    # 最终格式: https://ghproxy.net/https://raw.githubusercontent.com/用户/仓库/icon/icons/
+    base_url = f"https://ghproxy.net/https://raw.githubusercontent.com/{repo_full_name}/{TARGET_BRANCH}/{ICONS_DIR}/"
+    # 1. 定义两个加速域名的 Base URL
+    # Ghproxy: https://ghproxy.net/https://raw.githubusercontent.com/用户/仓库/分支/icons/
+    url_gh = f"https://ghproxy.net/https://raw.githubusercontent.com/{repo_full_name}/{TARGET_BRANCH}/{ICONS_DIR}/"
 
-    if not os.path.exists(ICONS_DIR):
-        os.makedirs(ICONS_DIR)
+    # jsDelivr: https://cdn.jsdelivr.net/gh/用户/仓库@分支/icons/
+    # 注意：jsDelivr 推荐使用 @分支名 来定位
+    url_js = f"https://cdn.jsdelivr.net/gh/{repo_full_name}@{TARGET_BRANCH}/{ICONS_DIR}/"
 
-    # 1. 下载原始 JSON
-    print("正在下载原始 JSON...")
-    try:
-        resp = requests.get(SOURCE_URL, timeout=30)
-        resp.raise_for_status()
+print(f"当前仓库: {repo_full_name}")
+    print(f"目标分支: {TARGET_BRANCH}")
+    print(f"图片基准路径: {base_url}")
+    print(f"Ghproxy Base: {url_gh}")
+    print(f"jsDelivr Base: {url_js}")
+
+if not os.path.exists(ICONS_DIR):
+os.makedirs(ICONS_DIR)
+
+    # 2. 下载原始数据
+print("正在下载原始 JSON...")
+try:
+resp = requests.get(SOURCE_URL, timeout=30)
+resp.raise_for_status()
+        data = resp.json()
         original_data = resp.json()
-    except Exception as e:
-        print(f"下载 JSON 失败: {e}")
-        return
+except Exception as e:
+print(f"下载 JSON 失败: {e}")
+return
 
-    # 2. 获取 items
-    base_items = original_data if isinstance(original_data, list) else original_data.get("icons", [])
+    items = data if isinstance(data, list) else data.get("icons", [])
+    print(f"找到 {len(items)} 个图标，开始同步...")
+    # 3. 准备两份数据副本
+    data_gh = copy.deepcopy(original_data)
+    data_js = copy.deepcopy(original_data)
 
-    print(f"找到 {len(base_items)} 个图标")
+    count = 0
+    for item in items:
+        original_url = item.get('url') or item.get('Url')
+        if not original_url: continue
+    items_gh = data_gh if isinstance(data_gh, list) else data_gh.get("icons", [])
+    items_js = data_js if isinstance(data_js, list) else data_js.get("icons", [])
 
-    # 3. 为每个 CDN 生成一个 JSON
-    for cdn_type, filename in OUTPUT_FILES.items():
-        print(f"正在生成: {cdn_type}")
+        parsed = urlparse(original_url)
+        filename = os.path.basename(parsed.path)
+        if not filename: continue
+    print(f"找到 {len(items_gh)} 个图标，开始处理...")
 
-        data_copy = copy.deepcopy(original_data)
-        items = data_copy if isinstance(data_copy, list) else data_copy.get("icons", [])
+        save_path = os.path.join(ICONS_DIR, filename)
+        if not os.path.exists(save_path):
+            try:
+                img_resp = requests.get(original_url, timeout=15)
+                if img_resp.status_code == 200:
+                    with open(save_path, "wb") as f:
+                        f.write(img_resp.content)
+                else:
+                    print(f"[ERR] 图片 404: {filename}")
+            except Exception as e:
+                print(f"[ERR] 下载异常 {filename}: {e}")
+        
+        # 修改链接指向 icon 分支
+        new_link = base_url + filename
+        if 'url' in item: item['url'] = new_link
+        if 'Url' in item: item['Url'] = new_link
+        
+        count += 1
+    # 4. 处理数据
+    # 第一遍：生成 ghproxy 数据，同时负责下载图片 (download=True)
+    process_items(items_gh, url_gh, download=True)
+    
+    # 第二遍：生成 jsDelivr 数据，不需要再下载图片了 (download=False)
+    process_items(items_js, url_js, download=False)
 
-        process_items(
-            items,
-            repo_full_name,
-            TARGET_BRANCH,
-            cdn_type,
-            download=(cdn_type == "jsdelivr")  # 只下载一次
-        )
+    with open(OUTPUT_JSON_NAME, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    # 5. 保存两个 JSON 文件
+    with open(OUTPUT_GHPROXY, "w", encoding="utf-8") as f:
+        json.dump(data_gh, f, ensure_ascii=False, indent=2)
+    
+    with open(OUTPUT_JSDELIVR, "w", encoding="utf-8") as f:
+        json.dump(data_js, f, ensure_ascii=False, indent=2)
 
-        with open(filename, "w", encoding="utf-8") as f:
-            json.dump(data_copy, f, ensure_ascii=False, indent=2)
-
-        print(f"✅ 已生成: {filename}")
-
-    print("🎉 全部处理完成！")
-
+    print(f"处理完成！JSON 已生成，准备推送到 {TARGET_BRANCH} 分支。")
+    print(f"处理完成！\n生成文件 1: {OUTPUT_GHPROXY}\n生成文件 2: {OUTPUT_JSDELIVR}")
 
 if __name__ == "__main__":
-    run()
+run()
