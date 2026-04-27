@@ -7,38 +7,41 @@ from urllib.parse import urlparse
 # ================= 配置 =================
 SOURCE_URL = "https://emby-icon.vercel.app/TFEL-Emby.json"
 
-OUTPUT_FILE = "TFEL-Emby-MultiCDN.json"
-
 ICONS_DIR = "icons"
 TARGET_BRANCH = "icon"
+
+OUTPUT_FILES = {
+    "jsdelivr": "TFEL-Emby-jsdelivr.json",
+    "statically": "TFEL-Emby-statically.json",
+    "fastgit": "TFEL-Emby-fastgit.json",
+    "ghproxy": "TFEL-Emby-ghproxy.json",
+    "raw": "TFEL-Emby-raw.json"
+}
 # =======================================
 
 
-def generate_cdn_urls(repo_full_name, branch, filename):
-    """
-    生成多个 CDN 加速链接（按优先级排序）
-    """
-    base_raw = f"https://raw.githubusercontent.com/{repo_full_name}/{branch}/icons/{filename}"
+def generate_cdn_url(repo, branch, filename, cdn_type):
+    base_raw = f"https://raw.githubusercontent.com/{repo}/{branch}/icons/{filename}"
 
-    return [
-        # 🥇 jsDelivr（最稳）
-        f"https://cdn.jsdelivr.net/gh/{repo_full_name}@{branch}/icons/{filename}",
+    if cdn_type == "jsdelivr":
+        return f"https://cdn.jsdelivr.net/gh/{repo}@{branch}/icons/{filename}"
 
-        # 🥈 Statically（国内快）
-        f"https://cdn.statically.io/gh/{repo_full_name}/{branch}/icons/{filename}",
+    elif cdn_type == "statically":
+        return f"https://cdn.statically.io/gh/{repo}/{branch}/icons/{filename}"
 
-        # 🥉 FastGit
-        f"https://raw.fastgit.org/{repo_full_name}/{branch}/icons/{filename}",
+    elif cdn_type == "fastgit":
+        return f"https://raw.fastgit.org/{repo}/{branch}/icons/{filename}"
 
-        # 备用 ghproxy
-        f"https://ghproxy.net/{base_raw}",
+    elif cdn_type == "ghproxy":
+        return f"https://ghproxy.net/{base_raw}"
 
-        # 最后兜底（官方）
-        base_raw
-    ]
+    elif cdn_type == "raw":
+        return base_raw
+
+    return base_raw
 
 
-def process_items(items, repo_full_name, branch, download=False, multi_url=True):
+def process_items(items, repo, branch, cdn_type, download=False):
     count = 0
 
     for item in items:
@@ -65,16 +68,13 @@ def process_items(items, repo_full_name, branch, download=False, multi_url=True)
                 except Exception as e:
                     print(f"[ERR] 下载异常 {filename}: {e}")
 
-        # 🚀 多 CDN
-        cdn_urls = generate_cdn_urls(repo_full_name, branch, filename)
-
-        # 是否使用多 URL fallback
-        new_value = cdn_urls if multi_url else cdn_urls[0]
+        # 替换 URL
+        new_url = generate_cdn_url(repo, branch, filename, cdn_type)
 
         if 'url' in item:
-            item['url'] = new_value
+            item['url'] = new_url
         if 'Url' in item:
-            item['Url'] = new_value
+            item['Url'] = new_url
 
         count += 1
 
@@ -102,27 +102,32 @@ def run():
         print(f"下载 JSON 失败: {e}")
         return
 
-    # 2. 深拷贝
-    data = copy.deepcopy(original_data)
+    # 2. 获取 items
+    base_items = original_data if isinstance(original_data, list) else original_data.get("icons", [])
 
-    items = data if isinstance(data, list) else data.get("icons", [])
+    print(f"找到 {len(base_items)} 个图标")
 
-    print(f"找到 {len(items)} 个图标，开始处理...")
+    # 3. 为每个 CDN 生成一个 JSON
+    for cdn_type, filename in OUTPUT_FILES.items():
+        print(f"正在生成: {cdn_type}")
 
-    # 3. 处理数据（开启多 CDN）
-    process_items(
-        items,
-        repo_full_name,
-        TARGET_BRANCH,
-        download=True,
-        multi_url=True
-    )
+        data_copy = copy.deepcopy(original_data)
+        items = data_copy if isinstance(data_copy, list) else data_copy.get("icons", [])
 
-    # 4. 保存 JSON
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+        process_items(
+            items,
+            repo_full_name,
+            TARGET_BRANCH,
+            cdn_type,
+            download=(cdn_type == "jsdelivr")  # 只下载一次
+        )
 
-    print(f"✅ 处理完成！输出文件: {OUTPUT_FILE}")
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(data_copy, f, ensure_ascii=False, indent=2)
+
+        print(f"✅ 已生成: {filename}")
+
+    print("🎉 全部处理完成！")
 
 
 if __name__ == "__main__":
